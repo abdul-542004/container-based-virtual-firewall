@@ -1,0 +1,95 @@
+version: '3.8'
+
+services:
+  # Server Container - Employee Management System
+  server:
+    build: ./server
+    container_name: server
+    hostname: server
+    networks:
+      internal_network:
+        ipv4_address: 172.20.0.3
+    environment:
+      - FLASK_APP=app.py
+      - FLASK_ENV=development
+    ports:
+      - "5001:5000"
+    cap_add:
+      - NET_ADMIN
+    restart: unless-stopped
+
+  # Firewall Container - Gateway between client and server
+  firewall:
+    build: ./firewall
+    container_name: firewall
+    hostname: firewall
+    privileged: true
+    networks:
+      internal_network:
+        ipv4_address: 172.20.0.2
+      external_network:
+        ipv4_address: 172.21.0.2
+    environment:
+      - FLASK_APP=dashboard.py
+      - SERVER_IP=172.20.0.3
+    ports:
+      - "8080:8080"  # Dashboard
+      - "5000:5000"  # Proxied server access
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    volumes:
+      - ./firewall/logs:/app/logs
+      - ./firewall/data:/app/data
+    restart: unless-stopped
+    depends_on:
+      - server
+
+  # Client Container - Internal network client
+  client:
+    build: ./client
+    container_name: client
+    hostname: client
+    networks:
+      internal_network:
+        ipv4_address: 172.20.0.4
+    cap_add:
+      - NET_ADMIN
+    stdin_open: true
+    tty: true
+    restart: unless-stopped
+    depends_on:
+      - firewall
+
+  # Attacker Container - External network (isolated)
+  attacker:
+    build: ./attacker
+    container_name: attacker
+    hostname: attacker
+    networks:
+      external_network:
+        ipv4_address: 172.21.0.10
+    cap_add:
+      - NET_ADMIN
+    stdin_open: true
+    tty: true
+    restart: unless-stopped
+
+networks:
+  internal_network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+          gateway: 172.20.0.1
+    driver_opts:
+      com.docker.network.bridge.name: br-internal
+  
+  external_network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.21.0.0/16
+          gateway: 172.21.0.1
+    driver_opts:
+      com.docker.network.bridge.name: br-external
