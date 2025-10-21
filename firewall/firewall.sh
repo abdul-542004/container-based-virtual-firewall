@@ -33,6 +33,10 @@ iptables -A FORWARD -m state --state ESTABLISHED,RELATED -j ACCEPT
 iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
 echo "✓ Established connections allowed"
 
+# Define internal network CIDR and external access toggle
+INTERNAL_CIDR="172.20.0.0/16"
+ALLOW_EXTERNAL="${ALLOW_EXTERNAL:-false}"
+
 # Load blocked IPs from file
 if [ -f /app/data/blocked_ips.txt ]; then
     echo "Loading blocked IPs..."
@@ -68,20 +72,44 @@ if [ -f /app/data/blocked_macs.txt ]; then
     done < /app/data/blocked_macs.txt
 fi
 
+# Access control for firewall-local services and forwarded app ports
+if [ "$ALLOW_EXTERNAL" = "true" ]; then
+    # Allow dashboard and proxy from anywhere
+    iptables -A INPUT -p tcp -m multiport --dports 8080,5000 -j ACCEPT
+    echo "✓ External access ENABLED: dashboard (8080) and proxy (5000) open"
+else
+    # Only allow dashboard and proxy from internal network; drop others
+    iptables -A INPUT -s $INTERNAL_CIDR -p tcp -m multiport --dports 8080,5000 -j ACCEPT
+    iptables -A INPUT -p tcp -m multiport --dports 8080,5000 -j DROP
+    echo "✓ External access DISABLED: dashboard (8080) and proxy (5000) restricted to internal"
+fi
+
 # Block SSH (port 22) by default
 iptables -A FORWARD -p tcp --dport 22 -j DROP
 echo "✓ SSH port (22) blocked"
 
 # Allow HTTP (port 80)
-iptables -A FORWARD -p tcp --dport 80 -j ACCEPT
+if [ "$ALLOW_EXTERNAL" = "true" ]; then
+    iptables -A FORWARD -p tcp --dport 80 -j ACCEPT
+else
+    iptables -A FORWARD -s $INTERNAL_CIDR -p tcp --dport 80 -j ACCEPT
+fi
 echo "✓ HTTP port (80) allowed"
 
 # Allow HTTPS (port 443)
-iptables -A FORWARD -p tcp --dport 443 -j ACCEPT
+if [ "$ALLOW_EXTERNAL" = "true" ]; then
+    iptables -A FORWARD -p tcp --dport 443 -j ACCEPT
+else
+    iptables -A FORWARD -s $INTERNAL_CIDR -p tcp --dport 443 -j ACCEPT
+fi
 echo "✓ HTTPS port (443) allowed"
 
 # Allow Flask app port (5000)
-iptables -A FORWARD -p tcp --dport 5000 -j ACCEPT
+if [ "$ALLOW_EXTERNAL" = "true" ]; then
+    iptables -A FORWARD -p tcp --dport 5000 -j ACCEPT
+else
+    iptables -A FORWARD -s $INTERNAL_CIDR -p tcp --dport 5000 -j ACCEPT
+fi
 echo "✓ Flask port (5000) allowed"
 
 # DDoS Protection: Connection rate limiting

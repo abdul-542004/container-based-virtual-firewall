@@ -32,6 +32,7 @@ services:
     environment:
       - FLASK_APP=dashboard.py
       - SERVER_IP=172.20.0.3
+      - ALLOW_EXTERNAL=true
     ports:
       - "8080:8080"  # Dashboard
       - "5000:5000"  # Proxied server access
